@@ -1,0 +1,10 @@
+#!/bin/sh -u
+# -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
+#
+# Copyright 2018 Raffaello D. Di Napoli
+# Distributed under the terms of the GNU General Public License v2
+
+find /run/openrc/scheduled/${1} ! -type d 2>/dev/null |
+while read svc; do
+   rc-service ${svc##*/} start
+done

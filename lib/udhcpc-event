@@ -1,0 +1,80 @@
+#!/bin/sh -u
+# -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
+#
+# Copyright 2018-2022 Raffaello D. Di Napoli
+# Distributed under the terms of the GNU General Public License v2
+
+prodname=$(basename $(dirname ${0}))
+unset IN_HOTPLUG RC_SVCNAME
+. /lib/${prodname}/shared.shlib
+
+# Configuration
+
+leasefile=/run/${prodname}/udhcpc.${interface}.lease
+
+# Event handler implementation
+#
+# Arguments provided through environment variables:
+#   broadcast
+#   dns (list)
+#   domain
+#   interface
+#   ip
+#   router (list)
+#   subnet
+
+bound() {
+   set | grep >${leasefile} \
+      '^\(broadcast\|dns\|domain\|interface\|ip\|router\|subnet\)='
+   # Don’t request noprefixroute, because one of the explicit routes might
+   # well depend on this one.
+   if ! ip address add ${ip}/${subnet} ${broadcast:+broadcast ${broadcast}} \
+        scope global dev ${1}; then
+      deconfig ${1}
+      exit 1
+   fi
+   if [ -n "${router:-}" ]; then
+      local m=1 gw
+      for gw in ${router}; do
+         if ! ip route add default via ${gw} metric ${m} dev ${1} proto boot; then
+            deconfig ${1}
+            exit 2
+         fi
+         m=$((m + 1))
+      done
+   fi
+   update_resolv_conf ${1}
+   mark_service_started ${prodname}.${1}
+   /lib/${prodname}/start_scheduled_services_for ${prodname}.${1}
+}
+
+deconfig() {
+   mark_service_inactive ${prodname}.${1}
+   # If there’s no record of what was configured, don’t deconfigure anything.
+   . ${leasefile} 2>/dev/null || return 0
+   # And if there is, only deconfigure once.
+   rm ${leasefile}
+   if [ -n "${router:-}" ]; then
+      local gw
+      for gw in ${router}; do
+         ip route delete default via ${gw} dev ${1}
+      done
+   fi
+   ip address delete ${ip}/${subnet} ${broadcast:+broadcast ${broadcast}} \
+      scope global dev ${1}
+   unset dns domain router
+   update_resolv_conf ${1}
+}
+
+renew() {
+   bound "${@}"
+}
+
+case ${1} in
+(bound|deconfig|renew)
+   ${1} ${interface}
+   ;;
+(nak|leasefail|*)
+   echo "${0##*/}: unhandled: ${1}" >&2
+   ;;
+esac

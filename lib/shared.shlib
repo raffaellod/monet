@@ -1,0 +1,283 @@
+# -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
+#
+# Copyright 2018-2022 Raffaello D. Di Napoli
+# Distributed under the terms of the GNU General Public License v2
+
+# Unify openrc and non-openrc execution environments
+export RC_LIBEXECDIR=/lib/rc
+if [ -z "${RC_SVCNAME:-}" ]; then
+   export PATH="${RC_LIBEXECDIR}/bin:${RC_LIBEXECDIR}/sbin:${PATH}"
+fi
+
+# Configuration
+
+hostapd_conf_dir=/etc/hostapd
+bridges_moved_ipaddrs_file=/run/${prodname}/bridges-moved-ipaddrs
+itf_resolv_conf_prefix=/run/${prodname}/resolv.conf-dhcpc.
+
+# Utility functions
+
+add_conf_ipaddrs() {
+   # If the user enabled hot plug for the DHCP client service, this will
+   # succeed; else the user doesn’t want to use DHCP for this interface.
+   IN_HOTPLUG=1 \
+   rc-service --ifexists --ifnotstarted ${prodname}-dhcpc.${1} start ||
+      return ${?}
+
+   local ipaddr ipaddrs
+   eval ipaddrs=\${${1}_ipaddrs:-}
+   for ipaddr in ${ipaddrs}; do
+      ebegin "Assigning IP address: ${ipaddr}"
+      ip address add ${ipaddr} dev ${1}
+      eend ${?} || return ${?}
+   done
+}
+
+add_to_bridge() {
+   ebegin "Adding $(pretty_name ${1}) to $(pretty_name ${2})"
+
+   ip link set ${1} master ${2} || { eend ${?}; return; }
+
+   # Transfer any IP addresses from slave to bridge, also tracking them for
+   # later.
+   local ipaddr
+   ip address show ${1} scope global |
+   sed -ne '
+      s/ '${1}'$//
+      s/^ \+inet6\? //p
+   ' |
+   while read -r ipaddr; do
+      ip address del ${ipaddr} dev ${1} &&
+      ip address add ${ipaddr} dev ${2}
+      echo "${1} ${ipaddr}"
+   done >>${bridges_moved_ipaddrs_file}
+
+   eend ${?}
+}
+
+add_to_bridge_maybe() {
+   local master=$(conf_get_master ${1})
+   if [ -n "${master}" ] && service_started ${prodname}.${master}; then
+      add_to_bridge ${1} ${master}
+   fi
+}
+
+any_tentatives() {
+   local itf
+   for itf; do
+      ip -f inet6 address show ${itf}
+   done |
+   grep -qF tentative
+}
+
+conf_get_master() {
+   local bridge slave slaves
+   for bridge in ${bridges}; do
+      eval slaves=\${${bridge}_slaves}
+      for slave in ${slaves}; do
+         if [ ${1} = ${slave} ]; then
+            echo ${bridge}
+            return
+         fi
+      done
+   done
+}
+
+# Finds the interface that will bring up another one.
+itf_from_dependent() {
+   # Our bridges are brought up by themselves.
+   local bridge
+   for bridge in ${bridges}; do
+      if [ ${1} = ${bridge} ]; then
+         echo ${1}
+         return 0
+      fi
+   done
+
+   # Try an interface or bss managed by hostapd.
+   # Use exit 1 in awk instead of 0 to save a 'END { exit 1 }' block: the ||
+   # in sh flips that back to 0, with awk having already printed what we need.
+   awk -F'[\t =]' -vstation=${1} '{
+      if ($1 == "interface") {
+         if ($2 == station) {
+            print station
+            exit 1
+         }
+         itf = $2
+      } else if ($1 == "bss" && $2 == station) {
+         print itf
+         exit 1
+      }
+   }' ${hostapd_conf_dir}/*.conf || return 0
+
+   # Interface with a physical device. Note that an extra bss created by
+   # hostapd also has a /device entry, so this check must be done after the
+   # one reading hostapd conf.
+   if [ -e /sys/class/net/${1}/device ]; then
+      echo ${1}
+      return 0
+   fi
+
+   # No idea.
+   return 1
+}
+
+itf_to_dependents() {
+   # Every interface’s dependents include itself.
+   echo ${1}
+   if [ -e /sys/class/net/${1}/wireless ]; then
+      awk -F'[\t =]' -vstation=${1} '{
+         if ($1 == "interface") {
+            if ($2 != station) {
+               nextfile
+            }
+         } else if ($1 == "bss") {
+            print $2
+         }
+      }' ${hostapd_conf_dir}/*.conf
+   fi
+}
+
+itf_type() {
+   local bridge
+   for bridge in ${bridges}; do
+      if [ ${1} = ${bridge} ]; then
+         echo bridge
+         return
+      fi
+   done
+   if [ -e /sys/class/net/${1}/device ]; then
+      if [ -e /sys/class/net/${1}/wireless ]; then
+         if [ -n "$(wifiap_conf_file ${1})" ]; then
+            echo wifiap
+         else
+            echo wifi
+         fi
+      else
+         echo wired
+      fi
+      return
+   fi
+   echo unknown
+}
+
+pretty_name() {
+   local conf_name
+   eval conf_name=\"\${${1}_name:-}\"
+   if [ -n "${conf_name}" ]; then
+      echo "\`${conf_name}' (${1})"
+   else
+      # What a sad name.
+      echo ${1}
+   fi
+}
+
+remove_conf_ipaddrs() {
+   if [ -x /etc/init.d/${prodname}-dhcpc.${1} ]; then
+      IN_HOTPLUG=1 /etc/init.d/${prodname}-dhcpc.${1} stop
+   fi
+
+   local ipaddr ipaddrs
+   eval ipaddrs=\${${1}_ipaddrs:-}
+   for ipaddr in ${ipaddrs}; do
+      ebegin "Removing IP address: ${ipaddr}"
+      ip address del ${ipaddr} dev ${1}
+      eend ${?}
+   done
+}
+
+remove_from_bridge() {
+   # Restore any transferred IP addresses.
+   if [ -r ${bridges_moved_ipaddrs_file} ]; then
+      ebegin "Tranferring IP addresses from ${2} back to ${1}"
+      local ipaddr
+      sed -ne "s/^${1} //p" <${bridges_moved_ipaddrs_file} |
+      while read -r ipaddr; do
+         ip address del ${ipaddr} dev ${2} &&
+         ip address add ${ipaddr} dev ${1}
+      done
+      # Clean up the tracking file.
+      sed -i -e "/^${1} /d" ${bridges_moved_ipaddrs_file}
+      eend ${?}
+   fi
+
+   ebegin "Removing ${1} from ${2}"
+   ip link set ${1} nomaster
+   eend ${?}
+}
+
+remove_from_bridge_maybe() {
+   local master=$(conf_get_master ${1})
+   if [ -n "${master}" ] && service_started ${prodname}.${master}; then
+      remove_from_bridge ${1} ${master}
+   fi
+}
+
+# ${1}: interface
+# ${dns}: optional list of DNS servers
+# ${search}: optional list of domains to use as suffixes
+# ${domain}: optional domain to use as suffix (if ${search} is missing)
+update_resolv_conf() {
+   {
+      echo "# Generated by ${prodname}-dhcpc.${1}"
+      local any=false ns
+      for ns in ${dns:-}; do
+         echo "nameserver ${ns}"
+         any=true
+      done
+      if ! ${any}; then
+         echo '# No DHCP name servers'
+      fi
+      if [ -n "${search:-}" ]; then
+         echo "search ${search}"
+      elif [ -n "${domain:-}" ]; then
+         echo "search ${domain}"
+      else
+         echo '# No DHCP domains'
+      fi
+   } >${itf_resolv_conf_prefix}${1}
+   {
+      echo "# Generated by ${prodname}-dhcpc"
+      if [ -x /etc/resolv.conf.head ]; then
+         /etc/resolv.conf.head
+      elif ! cat /etc/resolv.conf.head 2>/dev/null; then
+         echo '# /etc/resolv.conf.head can replace this line'
+      fi
+      for itf_resolv_conf in ${itf_resolv_conf_prefix}*; do
+         cat ${itf_resolv_conf}
+      done
+      if [ -x /etc/resolv.conf.tail ]; then
+         /etc/resolv.conf.tail
+      elif ! cat /etc/resolv.conf.tail 2>/dev/null; then
+         echo '# /etc/resolv.conf.tail can replace this line'
+      fi
+   } >/etc/resolv.conf
+}
+
+wait_for_tentatives() {
+   if any_tentatives ${*}; then
+      ebegin 'Waiting for tentative addresses'
+      retries=5
+      while [ ${retries} -gt 0 ]; do
+         sleep 1
+         if ! any_tentatives ${*}; then
+            eend 0
+            return
+         fi
+         retries=$((retries - 1))
+      done
+      eend 1
+   fi
+}
+
+# No output if not a Wi-Fi AP.
+wifiap_conf_file() {
+   awk -F'[\t =]' -vitf=${1} '
+      $1 == "interface" && $2 == itf {
+         print FILENAME
+         exit
+      }
+   ' ${hostapd_conf_dir}/*.conf
+}
+
+. /etc/${prodname}/${prodname}.conf

@@ -1,0 +1,191 @@
+#!/sbin/openrc-run
+# -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
+#
+# Copyright 2018-2022 Raffaello D. Di Napoli
+# Distributed under the terms of the GNU General Public License v2
+
+prodname=${RC_SVCNAME%%.*}
+. /lib/${prodname}/shared.shlib
+
+svcitf="${RC_SVCNAME#*.}"
+[ "${svcitf}" != ${RC_SVCNAME} ] || svcitf=
+
+depend() {
+   need localmount
+   after bootmisc clock modules
+   provide net
+   [ -n "${svcitf}" ] && provide net.${svcitf}
+}
+
+# Service implementation for each interface type
+
+bridge_start() {
+   ebegin "Creating bridge ${1}"
+   ip link add name ${1} type bridge &&
+   ip link set ${1} up
+   eend ${?} || return
+
+   add_conf_ipaddrs ${1}
+
+   local slave slaves
+   eval slaves=\${${1}_slaves}
+   for slave in ${slaves}; do
+      if ! service_started ${prodname}.$(itf_from_dependent ${slave}); then
+         einfo "Not adding ${slave} because its service has not started"
+         continue
+      fi
+      add_to_bridge ${slave} ${1}
+   done
+}
+
+bridge_stop() {
+   local slave slaves
+   eval slaves=\${${1}_slaves}
+   for slave in ${slaves}; do
+      service_started ${prodname}.$(itf_from_dependent ${slave}) || continue
+      remove_from_bridge ${slave} ${1}
+   done
+   remove_conf_ipaddrs ${1}
+
+   ebegin "Tearing down ${1}"
+   ip link set ${1} down &&
+   ip link delete ${1} type bridge
+   eend ${?}
+}
+
+unknown_start() {
+   eerror 'Unknown network interface!'
+   mark_service_failed
+   return 1
+}
+
+unknown_stop() {
+   :
+}
+
+wifi_start() {
+   :
+}
+
+wifi_stop() {
+   :
+}
+
+wifiap_start() {
+   local mac=$(cat /sys/class/net/${1}/address 2>/dev/null)
+   case ${mac} in
+   (*0)
+      # Ready to use in multi-station AP setup.
+      ;;
+   (*)
+      # Rewrite the MAC address to end with 0, to support multi-station AP
+      # setup. Since we’re editing the MAC, we’ll also mark it as locally-
+      # administered.
+      local la_mac=$(printf '%c%c:%.13s0' \
+            ${mac} $(echo ${mac} | cut -c2 | tr 02468ace 2266aaee) ${mac#*:})
+      ebegin "Adjusting MAC address to ${la_mac}"
+      service_set_value orig_mac ${mac}
+      ip link set dev ${1} address ${la_mac}
+      eend ${?} || return
+      ;;
+   esac
+
+   ebegin 'Starting hostapd'
+   local pidfile=/run/${prodname}/hostapd.${1}.pid
+   start-stop-daemon --start --pidfile=${pidfile} -- \
+      hostapd -B -P ${pidfile} "$(wifiap_conf_file ${1})"
+   eend ${?} || return
+
+   # hostapd forks too early.
+   sleep 5
+   wait_for_tentatives ${1}
+}
+
+wifiap_stop() {
+   ebegin 'Stopping hostapd'
+   local pidfile=/run/${prodname}/hostapd.${1}.pid
+   start-stop-daemon --stop --pidfile=${pidfile}
+   eend ${?} || return
+
+   orig_mac=$(service_get_value orig_mac)
+   if [ -n "${orig_mac}" ]; then
+      ebegin 'Restoring MAC address'
+      ip link set dev ${1} address ${orig_mac}
+      eend ${?}
+   fi
+}
+
+wired_start() {
+   if [ "$(cat /sys/class/net/${1}/operstate 2>/dev/null)" != up ]; then
+      # We’ll need to wait for ifplugd to tell us the link is up.
+      mark_service_inactive
+   fi
+   ebegin 'Starting link detection'
+   ifplugd -i ${1} -t 3 -r /lib/${prodname}/ifplugd-event
+   eend ${?}
+}
+
+wired_stop() {
+   ebegin 'Stopping link detection'
+   ifplugd -i ${1} -k
+   eend ${?}
+}
+
+# Service implementation
+
+if [ -n "${svcitf}" ]; then
+   name=$(pretty_name ${svcitf})
+   description="Configures $(pretty_name ${svcitf})"
+else
+   name='Network interface'
+   description='Configures a network interface (make a symlink with suffix .interface)'
+fi
+
+start_pre() {
+   if [ -z "${svcitf}" ]; then
+      eerror "${RC_SVCNAME} cannot be started directly; you must create a"
+      eerror "symlink to it named /etc/init.d/${RC_SVCNAME}.itf, where itf"
+      eerror 'is the name of the network interface that you want it to'
+      eerror 'manage for you.'
+      eerror ''
+      eerror 'If you then enable rc_hotplug for it, this service will be'
+      eerror 'started any time the interface is detected in the system.'
+      return 1
+   fi
+
+   mkdir -p /run/${prodname}
+}
+
+start() {
+   einfo "Starting $(pretty_name ${svcitf})"
+   eindent
+
+   $(itf_type ${svcitf})_start ${svcitf} || return
+
+   # *_start() might have marked the service inactive, in which case we’ll
+   # wait for up() to do this.
+   if ! service_inactive; then
+      local itf
+      for itf in $(itf_to_dependents ${svcitf}); do
+         add_to_bridge_maybe ${itf}
+      done
+   fi
+
+   eoutdent
+}
+
+stop() {
+   einfo "Stopping $(pretty_name ${svcitf})"
+   eindent
+
+   if ! service_wasinactive; then
+      local itf
+      for itf in $(itf_to_dependents ${svcitf}); do
+         remove_from_bridge_maybe ${itf}
+      done
+   fi
+
+   $(itf_type ${svcitf})_stop ${svcitf}
+
+   eoutdent
+}

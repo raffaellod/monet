@@ -1,0 +1,73 @@
+#!/bin/sh -u
+# -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
+#
+# Copyright 2018-2022 Raffaello D. Di Napoli
+# Distributed under the terms of the GNU General Public License v2
+
+prodname=$(basename $(dirname ${0}))
+unset IN_HOTPLUG RC_SVCNAME
+. /lib/${prodname}/shared.shlib
+
+# Event handler implementation
+#
+# Arguments provided through environment variables:
+#   af_waiting      Address family waiting for, as defined in dhcpcd.conf(5).
+#   ifcarrier       Link status of ${interface}: unknown, up or down.
+#   ifmetric        ${interface} preference, lower is better.
+#   ifwireless      1 if ${interface} is wireless, otherwise 0.
+#   ifflags         ${interface} flags.
+#   ifmtu           ${interface} MTU.
+#   ifssid          Name of the SSID the interface is connected to.
+#   interface_order List of interfaces, in order of preference.
+#   if_up           True if the interface is up, otherwise false.
+#   if_down         True if the interface is down, otherwise false.
+#   interface       Name of the interface.
+#   old_*           Old configuration being removed.
+#   new_*           New configuration being applied.
+#   pid             Pid of dhcpcd.
+#   profile         Name of the profile selected from dhcpcd.conf(5).
+#   protocol        Protocol that triggered the event.
+#   reason          Reason for invocation.
+
+configured() {
+   #set | grep -e '^if' -e '^new_' -e '^reason=' -e '^interface=' >/run/${prodname}/dhcpcd.vars
+   dns= domain= search=
+   # Test for a *6 ${reason}.
+   if [ "${reason%6}" = "${reason}" ]; then
+      # Use DHCP variables.
+      dns="${new_domain_name_servers-}"
+      search="${new_domain_search-}"
+      domain=${new_domain_name-}
+   else
+      # Use DHCP6 variables.
+      dns="${new_dhcp6_name_servers-}"
+      search="${new_dhcp6_domain_search-}"
+      if [ -n "${new_dhcp6_fqdn-}" ] && [ "${new_dhcp6_fqdn#*.}" != "${new_dhcp6_fqdn}" ]; then
+         domain="${new_dhcp6_fqdn#*.}"
+      fi
+   fi
+   update_resolv_conf ${1}
+   mark_service_started ${prodname}.${1}
+   /lib/${prodname}/start_scheduled_services_for ${prodname}.${1}
+}
+
+deconfigured() {
+   #set | grep -e '^if' -e '^new_' -e '^reason=' -e '^interface=' >/run/${prodname}/dhcpcd.vars
+   mark_service_inactive ${prodname}.${1}
+   unset dns domain search
+   update_resolv_conf ${1}
+}
+
+#logger -t info "dhcpcd ${reason} \\"
+case ${reason} in
+(BOUND|REBOOT|RENEW)
+   configured ${interface}
+   ;;
+(EXPIRE|STOP)
+   deconfigured ${interface}
+   ;;
+(*)
+   echo "${0##*/}: unhandled: ${reason}" >&2
+   ;;
+esac
+#logger -t info "dhcpcd ${reason} /"

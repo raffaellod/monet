@@ -1,0 +1,58 @@
+#!/bin/sh -u
+# -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
+#
+# Copyright 2018-2022 Raffaello D. Di Napoli
+# Distributed under the terms of the GNU General Public License v2
+
+prodname=$(basename $(dirname ${0}))
+unset IN_HOTPLUG RC_SVCNAME
+. /lib/${prodname}/shared.shlib
+
+# Event handler implementation
+#
+# Arguments:
+#   1: interface
+#   2: action
+
+down() {
+   # There might be a delay from when we stop e.g. ifplugd and when that
+   # calls us back for “down”, and by then this service might be fully
+   # stopped, and we don’t want to overwrite that state.
+   if service_started ${prodname}.${1}; then
+      mark_service_inactive ${prodname}.${1}
+   fi
+
+   local itf
+   for itf in $(itf_to_dependents ${1}); do
+      remove_from_bridge_maybe ${itf}
+      remove_conf_ipaddrs ${itf}
+   done
+}
+
+up() {
+   local itf
+   for itf in $(itf_to_dependents ${1}); do
+      add_conf_ipaddrs ${itf} || return ${?}
+      add_to_bridge_maybe ${itf}
+   done
+
+   if service_started ${prodname}-dhcpc.${1}; then
+      # -dhcpc.itf will manage started/inactive for .itf, so we’ll leave it
+      # inactive, here.
+      :
+   else
+      # All IP addresses in config (possibly none) got added, because we’re
+      # still here.
+      mark_service_started ${prodname}.${1}
+      /lib/${prodname}/start_scheduled_services_for ${prodname}.${1}
+   fi
+}
+
+case ${2} in
+(down|up)
+   ${2} ${1}
+   ;;
+(*)
+   echo "${0##*/}: unhandled: ${2}" >&2
+   ;;
+esac

@@ -1,0 +1,86 @@
+#!/sbin/openrc-run
+# -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
+#
+# Copyright 2018-2022 Raffaello D. Di Napoli
+# Distributed under the terms of the GNU General Public License v2
+
+prodname=${RC_SVCNAME%%-*}
+svcitf="${RC_SVCNAME#*.}"
+[ "${svcitf}" != ${RC_SVCNAME} ] || svcitf=
+. /etc/${prodname}/${prodname}.conf
+
+eval dhcpc_daemon=\${${svcitf}_dhcpc_daemon}
+if [ -n "${dhcpc_daemon}" ]; then
+   # TODO: discover what software it is.
+   :
+elif type dhcpcd >/dev/null 2>&1; then
+   dhcpc_daemon=dhcpcd
+elif busybox 2>&1 | grep -q '\sudhcpc,'; then
+   dhcpc_daemon=udhcpc
+fi
+
+depend() {
+   need logger
+   # after because we can start without a hostname; none will be provided to
+   # the DHCP server.
+   after hostname
+   # Not need, because we’ll mark it as inactive when we don’t have a lease,
+   # and that would stop this service and never get a lease again.
+   # Not use, because we do want OpenRC to start it.
+   want ${svcitf:+${prodname}.${svcitf}}
+}
+
+if [ "${dhcpc_daemon##*/}" = dhcpcd ]; then
+   name="DHCP client for ${svcitf} using dhcpcd"
+   command="${dhcpc_daemon}"
+   pidfile=/run/dhcpcd/${svcitf}.pid
+   conffile=/etc/${prodname}/dhcpcd.${svcitf}.conf
+   command_args="
+      --config ${conffile} --script /lib/${prodname}/dhcpcd-event
+      --background --nodev --nohook resolv.conf --nolink
+      --option domain_name,domain_name_servers,domain_search
+      --option classless_static_routes,interface_mtu,rapid_commit
+      ${svcitf}
+   "
+elif [ "${dhcpc_daemon}" = udhcpc ]; then
+   name="DHCP client for ${svcitf} using udhcpc"
+   command=busybox
+   procname=udhcpc
+   pidfile=/run/${prodname}/udhcpc.${svcitf}.pid
+   command_args="
+      -RS -A 5 -b -i ${svcitf} -p ${pidfile}
+      -s /lib/${prodname}/udhcpc-event
+   "
+   hn=$(hostname)
+   [ "x${hn}" != 'x(unknown)' ] || hn=
+   if [ -n "${hn}" ]; then
+      command_args="${command_args} -x hostname:${hn}"
+   fi
+   unset hn
+elif [ -n "${svcitf}" ]; then
+   name="DHCP client for ${svcitf}"
+else
+   name='DHCP client (make a symlink with suffix .interface)'
+fi
+description="${name}"
+
+# Service implementation
+
+start_pre() {
+   if [ -z "${svcitf}" ]; then
+      eerror "${RC_SVCNAME} cannot be started directly; you must create a"
+      eerror "symlink to it named /etc/init.d/${RC_SVCNAME}.itf, where itf"
+      eerror 'is the name of the network interface that you want to get an'
+      eerror 'address via DHCP.'
+      eerror ''
+      eerror 'If you then enable rc_hotplug for it, this service will be'
+      eerror 'started any time the link on the interface is up.'
+      return 1
+   fi
+
+   if [ "${dhcpc_daemon##*/}" = dhcpcd ]; then
+      mkdir -p /run/dhcpcd
+   elif [ "${dhcpc_daemon}" = udhcpc ]; then
+      mkdir -p /run/${prodname}
+   fi
+}
