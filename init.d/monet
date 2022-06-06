@@ -53,6 +53,15 @@ bridge_stop() {
    eend ${?}
 }
 
+find_ifplugd() {
+   if ! type ifplugd >/dev/null 2>&1 && busybox 2>&1 | grep -q '\sifplugd,'
+   then
+      echo 'busybox ifplugd'
+   else
+      echo ifplugd
+   fi
+}
+
 unknown_start() {
    eerror 'Unknown network interface!'
    mark_service_failed
@@ -121,13 +130,13 @@ wired_start() {
       mark_service_inactive
    fi
    ebegin 'Starting link detection'
-   ifplugd -i ${1} -t 3 -r /lib/${prodname}/ifplugd-event
+   $(find_ifplugd) -i ${1} -t 3 -r /lib/${prodname}/ifplugd-event
    eend ${?}
 }
 
 wired_stop() {
    ebegin 'Stopping link detection'
-   ifplugd -i ${1} -k
+   $(find_ifplugd) -i ${1} -k
    eend ${?}
 }
 
