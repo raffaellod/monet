@@ -83,7 +83,25 @@ conf_get_master() {
    done
 }
 
+# Only used on real interfaces; does not need to handle additional BSSs for AP
+# interfaces.
+itf_dependencies() {
+   local bridge
+   for bridge in ${bridges}; do
+      if [ ${bridge} = ${1} ]; then
+         local slave slaves
+         eval slaves=\${${1}_slaves}
+         for slave in ${slaves}; do
+            itf_from_dependent ${slave}
+         done
+         return 0
+      fi
+   done
+}
+
 # Finds the interface that will bring up another one.
+# Involved in dependencies calculation, so it should not depend on the device
+# to exist.
 itf_from_dependent() {
    # Our bridges are brought up by themselves.
    local bridge
@@ -114,16 +132,9 @@ itf_from_dependent() {
       }' {} + || return 0
    fi
 
-   # Interface with a physical device. Note that an extra bss created by
-   # hostapd also has a /device entry, so this check must be done after the
-   # one reading hostapd conf.
-   if [ -e /sys/class/net/${1}/device ]; then
-      echo ${1}
-      return 0
-   fi
-
-   # No idea.
-   return 1
+   # Sane default: assume an interface can bring itself up.
+   echo ${1}
+   return 0
 }
 
 itf_to_dependents() {

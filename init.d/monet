@@ -14,7 +14,13 @@ depend() {
    need localmount
    after bootmisc clock modules
    provide net
-   [ -n "${svcitf}" ] && provide net.${svcitf}
+   if [ -n "${svcitf}" ]; then
+      provide net.${svcitf}
+      local depitf
+      for depitf in $(itf_dependencies ${svcitf}); do
+         need ${prodname}.${depitf}
+      done
+   fi
 }
 
 # Service implementation for each interface type
