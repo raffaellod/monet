@@ -94,21 +94,25 @@ itf_from_dependent() {
       fi
    done
 
-   # Try an interface or bss managed by hostapd.
-   # Use exit 1 in awk instead of 0 to save a 'END { exit 1 }' block: the ||
-   # in sh flips that back to 0, with awk having already printed what we need.
-   awk -F'[\t =]' -vstation=${1} '{
-      if ($1 == "interface") {
-         if ($2 == station) {
-            print station
+   if [ -d "${hostapd_conf_dir}" ]; then
+      # Try an interface or bss managed by hostapd.
+      # Use exit 1 in awk instead of 0 to save a 'END { exit 1 }' block: the
+      # || in sh flips that back to 0, with awk having already printed what we
+      # need.
+      find ${hostapd_conf_dir} -name \*.conf -exec \
+      awk -F'[\t =]' -vstation=${1} '{
+         if ($1 == "interface") {
+            if ($2 == station) {
+               print station
+               exit 1
+            }
+            itf = $2
+         } else if ($1 == "bss" && $2 == station) {
+            print itf
             exit 1
          }
-         itf = $2
-      } else if ($1 == "bss" && $2 == station) {
-         print itf
-         exit 1
-      }
-   }' ${hostapd_conf_dir}/*.conf || return 0
+      }' {} + || return 0
+   fi
 
    # Interface with a physical device. Note that an extra bss created by
    # hostapd also has a /device entry, so this check must be done after the
