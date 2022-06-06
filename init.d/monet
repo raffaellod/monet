@@ -25,8 +25,6 @@ bridge_start() {
    ip link set ${1} up
    eend ${?} || return
 
-   add_conf_ipaddrs ${1}
-
    local slave slaves
    eval slaves=\${${1}_slaves}
    for slave in ${slaves}; do
@@ -36,16 +34,21 @@ bridge_start() {
       fi
       add_to_bridge ${slave} ${1}
    done
+
+   # This lets .dhcpc start (part of add_conf_ipaddrs).
+   mark_service_started
+   add_conf_ipaddrs ${1}
 }
 
 bridge_stop() {
+   remove_conf_ipaddrs ${1}
+
    local slave slaves
    eval slaves=\${${1}_slaves}
    for slave in ${slaves}; do
       service_started ${prodname}.$(itf_from_dependent ${slave}) || continue
       remove_from_bridge ${slave} ${1}
    done
-   remove_conf_ipaddrs ${1}
 
    ebegin "Tearing down ${1}"
    ip link set ${1} down &&
