@@ -1,0 +1,75 @@
+# Copyright 2022 Raffaello D. Di Napoli
+# Distributed under the terms of the GNU General Public License v2
+
+#
+# Simple configuration: just one GbE adapter, configured via DHCP
+#
+
+# Optional name
+enp0s1_name='rear GbE'
+# Enable DHCP via OpenRC hotplug by adding this to /etc/rc.conf :
+#rc_hotplug='monet-dhcpc.enp0s1'
+
+# Then create symlinks:
+# $ sudo ln -s monet /etc/init.d/monet.enp0s1
+# $ sudo ln -s monet-dhcpc /etc/init.d/monet-dhcpc.enp0s1
+# Add to the default runlevel:
+# $ sudo rc-config add monet.enp0s1 default
+
+#
+# Dual-adapter configuration: one for WAN, one for LAN
+#
+
+enp0s1_name='WAN GbE'
+enp1s1_name='LAN GbE'
+# Enable DHCP via OpenRC hotplug by adding this to /etc/rc.conf :
+#rc_hotplug='monet-dhcpc.enp0s1'
+# LAN uses a static address:
+enp1s1_ipaddrs='10.20.30.40/24'
+
+# Then create symlinks:
+# $ sudo ln -s monet /etc/init.d/monet.enp0s1
+# $ sudo ln -s monet /etc/init.d/monet.enp1s1
+# $ sudo ln -s monet-dhcpc /etc/init.d/monet-dhcpc.enp0s1
+# Add to the default runlevel:
+# $ sudo rc-config add monet.enp0s1 default
+# $ sudo rc-config add monet.enp1s1 default
+
+#
+# Dual-adapter configuration: one for WAN, one for LAN with DHCP server
+# Same as above, but...
+#
+
+# Optionally configure DHCP address range:
+enp1s1_dhcpd_start=0.0.0.128
+enp1s1_dhcpd_end=0.0.0.224
+
+# One more symlink & service:
+# $ sudo ln -s monet-dhcpd /etc/init.d/monet-dhcpd.enp1s1
+# $ sudo rc-config add monet-dhcpd.enp1s1 default
+# Or, using dnsmasq:
+# $ sudo ln -s monet-dnsmasq /etc/init.d/monet-dnsmasq.enp1s1
+# $ sudo rc-config add monet-dnsmasq.enp1s1 default
+
+#
+# Bridged dual adapters
+#
+
+# Declare bridges to create & manage
+bridges='br0'
+
+enp0s1_name='LAN1 GbE'
+enp1s1_name='LAN2 GbE'
+br0_name='bridge between LANs'
+# Bridge 0 uses a static address
+br0_ipaddrs='10.20.30.40/24'
+br0_slaves='enp0s1 enp1s1'
+
+# Then create symlinks:
+# $ sudo ln -s monet /etc/init.d/monet.enp0s1
+# $ sudo ln -s monet /etc/init.d/monet.enp1s1
+# $ sudo ln -s monet /etc/init.d/monet.br0
+# Add to the default runlevel:
+# $ sudo rc-config add monet.enp0s1 default
+# $ sudo rc-config add monet.enp1s1 default
+# $ sudo rc-config add monet.br0 default
