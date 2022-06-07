@@ -63,7 +63,12 @@ enp1s1_name='LAN2 GbE'
 br0_name='bridge between LANs'
 # Bridge 0 uses a static address
 br0_ipaddrs='10.20.30.40/24'
-br0_slaves='enp0s1 enp1s1'
+# Use a question mark to make enp0s1 an optional dependency of br0. This means
+# monet.br0 may start before monet.enp0s1, and stopping monet.enp0s1 won’t also
+# stop monet.enp0s1 .
+# After making changes to a bridge’s slaves list, run `rc-update -u' to ensure
+# services’ dependencies are up-to-date.
+br0_slaves='enp0s1? enp1s1'
 
 # Then create symlinks:
 # $ sudo ln -s monet /etc/init.d/monet.enp0s1

@@ -31,9 +31,8 @@ bridge_start() {
    ip link set ${1} up
    eend ${?} || return
 
-   local slave slaves
-   eval slaves=\${${1}_slaves}
-   for slave in ${slaves}; do
+   conf_get_bridge_slaves ${1} |
+   while read slave; do
       if ! service_started ${prodname}.$(itf_from_dependent ${slave}); then
          einfo "Not adding ${slave} because its service has not started"
          continue
@@ -41,7 +40,7 @@ bridge_start() {
       add_to_bridge ${slave} ${1}
    done
 
-   # This lets .dhcpc start (part of add_conf_ipaddrs).
+   # This lets -dhcpc start (part of add_conf_ipaddrs).
    mark_service_started
    add_conf_ipaddrs ${1}
 }
@@ -49,9 +48,8 @@ bridge_start() {
 bridge_stop() {
    remove_conf_ipaddrs ${1}
 
-   local slave slaves
-   eval slaves=\${${1}_slaves}
-   for slave in ${slaves}; do
+   conf_get_bridge_slaves ${1} |
+   while read slave; do
       service_started ${prodname}.$(itf_from_dependent ${slave}) || continue
       remove_from_bridge ${slave} ${1}
    done

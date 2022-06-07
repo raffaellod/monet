@@ -70,31 +70,49 @@ any_tentatives() {
    grep -qF tentative
 }
 
+# Outputs all, or all non-optional (needed), slaves for a given bridge, one
+# per line.
+conf_get_bridge_slaves() {
+   local include_optional=true
+   if [ "${1}" = --exclude-optional ]; then
+      include_optional=false
+      shift
+   fi
+   local slave slaves
+   eval slaves=\"\${${1}_slaves}\"
+   for slave in ${slaves}; do
+      # If we’re not including optionals and this slave ends in a question
+      # mark, indicating it’s optional, skip it.
+      ${include_optional} || [ "${slave%\?}" = "${slave}" ] || continue
+      # Strip the question mark suffix, if present.
+      echo ${slave%\?}
+   done
+}
+
 conf_get_master() {
-   local bridge slave slaves
+   local bridge
    for bridge in ${bridges}; do
-      eval slaves=\${${bridge}_slaves}
-      for slave in ${slaves}; do
-         if [ ${1} = ${slave} ]; then
-            echo ${bridge}
-            return
-         fi
-      done
+      if conf_get_bridge_slaves ${bridge} | grep -Fqx ${1}; then
+         echo ${bridge}
+         return
+      fi
    done
 }
 
 # Only used on real interfaces; does not need to handle additional BSSs for AP
 # interfaces.
+# For bridges, it does not include optional slaves, since they’re by definition
+# not strictly needed.
 itf_dependencies() {
    local bridge
    for bridge in ${bridges}; do
       if [ ${bridge} = ${1} ]; then
-         local slave slaves
-         eval slaves=\${${1}_slaves}
-         for slave in ${slaves}; do
+         conf_get_bridge_slaves --exclude-optional ${1} |
+         while read slave; do
             itf_from_dependent ${slave}
-         done
-         return 0
+         done |
+         sort -u
+         return
       fi
    done
 }
