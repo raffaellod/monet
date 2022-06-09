@@ -98,7 +98,7 @@ wifiap_start() {
       # setup. Since we’re editing the MAC, we’ll also mark it as locally-
       # administered.
       local la_mac=$(printf '%c%c:%.13s0' \
-            ${mac} $(echo ${mac} | cut -c2 | tr 02468ace 2266aaee) ${mac#*:})
+            ${mac} $(echo ${mac} | cut -c2 | tr 048c 26ae) ${mac#*:})
       ebegin "Adjusting MAC address to ${la_mac}"
       service_set_value orig_mac ${mac}
       ip link set dev ${1} address ${la_mac}
