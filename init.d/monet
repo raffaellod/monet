@@ -69,6 +69,30 @@ find_ifplugd() {
    fi
 }
 
+tap_start() {
+   local group user
+   eval user=\${${1}_user:-root}
+   eval group=\${${1}_group:-root}
+
+   ebegin "Creating TAP ${1}"
+   ip tuntap add dev ${1} mode tap user "${user}" group "${group}" &&
+   ip link set ${1} up
+   eend ${?} || return
+
+   # This lets -dhcpc start (part of add_conf_ipaddrs).
+   mark_service_started
+   add_conf_ipaddrs ${1} || return ${?}
+}
+
+tap_stop() {
+   remove_conf_ipaddrs ${1}
+
+   ebegin "Tearing down TAP ${1}"
+   ip link set ${1} down &&
+   ip tuntap del dev ${1} mode tap
+   eend ${?}
+}
+
 unknown_start() {
    eerror 'Unknown network interface!'
    mark_service_failed

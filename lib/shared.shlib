@@ -121,10 +121,10 @@ itf_dependencies() {
 # Involved in dependencies calculation, so it should not depend on the device
 # to exist.
 itf_from_dependent() {
-   # Our bridges are brought up by themselves.
-   local bridge
-   for bridge in ${bridges-}; do
-      if [ ${1} = ${bridge} ]; then
+   # Our bridges and TAP/TUNs are brought up by themselves.
+   local itf
+   for itf in ${bridges-} ${taps-}; do
+      if [ ${itf} = ${1} ]; then
          echo ${1}
          return 0
       fi
@@ -172,10 +172,16 @@ itf_to_dependents() {
 }
 
 itf_type() {
-   local bridge
-   for bridge in ${bridges-}; do
-      if [ ${1} = ${bridge} ]; then
+   local itf
+   for itf in ${bridges-}; do
+      if [ ${itf} = ${1} ]; then
          echo bridge
+         return
+      fi
+   done
+   for itf in ${taps-}; do
+      if [ ${itf} = ${1} ]; then
+         echo tap
          return
       fi
    done
