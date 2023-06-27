@@ -1,7 +1,7 @@
 #!/bin/sh -u
 # -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
 #
-# Copyright 2018-2022 Raffaello D. Di Napoli
+# Copyright 2018-2023 Raffaello D. Di Napoli
 # Distributed under the terms of the GNU General Public License v2
 
 prodname=$(basename $(dirname ${0}))
@@ -29,10 +29,83 @@ unset IN_HOTPLUG RC_SVCNAME
 #   protocol        Protocol that triggered the event.
 #   reason          Reason for invocation.
 
-configured() {
-   #set | grep -e '^if' -e '^new_' -e '^reason=' -e '^interface=' >/run/${prodname}/dhcpcd.vars
-   dns= domain= search=
-   # Test for a *6 ${reason}.
+# Renew, autoconfig:
+# if_configured='true'
+# if_down='false'
+# if_up='true'
+# ifcarrier='up'
+# ifflags='69699'
+# ifmetric='1002'
+# ifmtu='1500'
+# ifwireless='0'
+# interface='enp0s0'
+# new_broadcast_address='1.2.3.255'
+# new_dhcp_lease_time='3600'
+# new_dhcp_message_type='5'
+# new_dhcp_rebinding_time='3000'
+# new_dhcp_renewal_time='1650'
+# new_dhcp_server_identifier='1.2.3.2'
+# new_domain_name='example.com'
+# new_domain_name_servers='1.2.3.2'
+# new_ip_address='1.2.3.179'
+# new_network_number='1.2.3.0'
+# new_routers='1.2.3.2'
+# new_subnet_cidr='24'
+# new_subnet_mask='255.255.255.0'
+# reason='REBIND'
+
+# Link down, autoconfig:
+# if_configured='true'
+# if_down='true'
+# if_up='false'
+# ifcarrier='down'
+# ifflags='4099'
+# ifmetric='1002'
+# ifmtu='1500'
+# ifwireless='0'
+# interface='enp0s0'
+# reason='DEPARTED'
+
+# Started, manual config:
+# if_configured='false'
+# if_down='false'
+# if_up='false'
+# ifcarrier='up'
+# ifflags='69699'
+# ifmetric='1002'
+# ifmtu='1500'
+# ifwireless='0'
+# interface='enp0s0'
+# reason='PREINIT'
+
+# Link up, manual config:
+# if_configured='false'
+# if_down='false'
+# if_up='true'
+# ifcarrier='up'
+# ifflags='69699'
+# ifmetric='1002'
+# ifmtu='1500'
+# ifwireless='0'
+# interface='enp0s0'
+# new_broadcast_address='1.2.3.255'
+# new_dhcp_lease_time='3600'
+# new_dhcp_message_type='5'
+# new_dhcp_rebinding_time='3150'
+# new_dhcp_renewal_time='1800'
+# new_dhcp_server_identifier='1.2.3.2'
+# new_domain_name='example.com'
+# new_domain_name_servers='1.2.3.2'
+# new_ip_address='1.2.3.179'
+# new_network_number='1.2.3.0'
+# new_routers='1.2.3.2'
+# new_subnet_cidr='24'
+# new_subnet_mask='255.255.255.0'
+# reason='BOUND'
+
+
+after_configured() {
+   # Test for ${reason} ~ /6$/ .
    if [ "${reason%6}" = "${reason}" ]; then
       # Use DHCP variables.
       dns="${new_domain_name_servers-}"
@@ -44,30 +117,93 @@ configured() {
       search="${new_dhcp6_domain_search-}"
       if [ -n "${new_dhcp6_fqdn-}" ] && [ "${new_dhcp6_fqdn#*.}" != "${new_dhcp6_fqdn}" ]; then
          domain="${new_dhcp6_fqdn#*.}"
+      else
+         domain=
       fi
    fi
-   update_resolv_conf ${1}
-   mark_service_started ${prodname}.${1}
-   /lib/${prodname}/start_scheduled_services_for ${prodname}.${1}
+   update_resolv_conf ${interface}
+   mark_service_started ${prodname}.${interface}
+   /lib/${prodname}/start_scheduled_services_for ${prodname}.${interface}
 }
 
-deconfigured() {
-   #set | grep -e '^if' -e '^new_' -e '^reason=' -e '^interface=' >/run/${prodname}/dhcpcd.vars
-   mark_service_inactive ${prodname}.${1}
+after_deconfigured() {
+   mark_service_inactive ${prodname}.${interface}
    unset dns domain search
-   update_resolv_conf ${1}
+   update_resolv_conf ${interface}
 }
 
-#logger -t info "dhcpcd ${reason} \\"
+manual_configure() {
+   local master=$(conf_get_master ${interface})
+   local target_interface=${master:-${interface}}
+
+   logger -t "${prodname}/dhcpcd[${target_interface}]" "adding address ${new_ip_address}/${new_subnet_cidr}"
+   if ! ip address add ${new_ip_address}/${new_subnet_cidr} \
+         ${new_broadcast_address:+broadcast ${new_broadcast_address}} \
+         scope global dev ${target_interface}; then
+      logger -t "${prodname}/dhcpcd[${target_interface}]" "failed to add address ${new_ip_address}"
+   fi
+   if [ -n "${master}" ]; then
+      echo "${interface} ${new_ip_address}/${new_subnet_cidr}" >>${bridges_moved_ipaddrs_file}
+   fi
+
+   if [ -n "${itfmtu:-}" ]; then
+      logger -t "${prodname}/dhcpcd[${interface}]" "setting MTU to ${itfmtu}"
+      ip link set ${interface} mtu ${ifmtu}
+   fi
+
+   if [ -n "${new_routers:-}" ]; then
+      logger -t "${prodname}/dhcpcd[${target_interface}]" "adding routes ${new_routers}"
+      local m=${ifmetric-1} gw
+      for gw in ${new_routers}; do
+         if ! ip route add default via ${gw} metric ${m} dev ${target_interface} proto boot; then
+            logger -t "${prodname}/dhcpcd[${target_interface}]" "failed to add route ${gw}"
+         fi
+         m=$((m + 1))
+      done
+   fi
+}
+
+manual_deconfigure() {
+   local master=$(conf_get_master ${interface})
+   local target_interface=${master:-${interface}}
+
+   if [ -n "${old_routers:-}" ]; then
+      logger -t "${prodname}/dhcpcd[${target_interface}]" "deleting routes ${old_routers}"
+      local gw
+      for gw in ${old_routers}; do
+         ip route delete default via ${gw} dev ${target_interface}
+      done
+   fi
+
+   logger -t "${prodname}/dhcpcd[${target_interface}]" "removing address ${new_ip_address}/${new_subnet_cidr}"
+   ip address delete ${old_ip_address}/${old_subnet_cidr} dev ${target_interface}
+   if [ -n "${master}" ]; then
+      local escaped_ipaddr=$(echo ${old_ip_address} | sed -e 's/\./\\./g')
+      sed -i -e "/^${interface} ${escaped_ipaddr}\/${old_subnet_cidr}/d" ${bridges_moved_ipaddrs_file}
+   fi
+}
+
+#logger -t "${prodname}/dhcpcd[${interface}]" "${reason} \\"
+#exec 2>/run/${prodname}/${interface}.dhcpcd.log
+#set -x
+#set | sed -ne 's/^if\|^\(new\|old\)_\|^\(reason\|interface\)=/export &/p' >/run/${prodname}/${interface}.dhcpcd.vars
 case ${reason} in
-(BOUND|REBOOT|RENEW)
-   configured ${interface}
+(BOUND|REBOOT)
+   ${if_configured} || manual_configure
+   after_configured
+   ;;
+(REBIND|RENEW)
+   # Nothing to do?
    ;;
 (EXPIRE|STOP)
-   deconfigured ${interface}
+   ${if_configured} || manual_deconfigure
+   after_deconfigured
+   ;;
+(DEPARTED|PREINIT)
+   # Interface gone or not there yet, respectively. Not really interesting.
    ;;
 (*)
    echo "${0##*/}: unhandled: ${reason}" >&2
    ;;
 esac
-#logger -t info "dhcpcd ${reason} /"
+#logger -t "${prodname}/dhcpcd[${interface}]" "${reason} /"

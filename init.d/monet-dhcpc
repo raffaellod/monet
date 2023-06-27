@@ -1,13 +1,14 @@
 #!/sbin/openrc-run
 # -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
 #
-# Copyright 2018-2022 Raffaello D. Di Napoli
+# Copyright 2018-2023 Raffaello D. Di Napoli
 # Distributed under the terms of the GNU General Public License v2
 
 prodname=${RC_SVCNAME%%-*}
+. /lib/${prodname}/shared.shlib
+
 svcitf="${RC_SVCNAME#*.}"
 [ "${svcitf}" != ${RC_SVCNAME} ] || svcitf=
-. /etc/${prodname}/${prodname}.conf
 
 eval dhcpc_daemon=\${${svcitf}_dhcpc_daemon}
 if [ -n "${dhcpc_daemon}" ]; then
@@ -37,7 +38,19 @@ if [ "${dhcpc_daemon##*/}" = dhcpcd ]; then
    conffile=/etc/${prodname}/dhcpcd.${svcitf}.conf
    command_args="
       --config ${conffile} --script /lib/${prodname}/dhcpcd-event
-      --background --nodev --nohook resolv.conf --nolink
+      --background --noconfigure --nodev --nohook resolv.conf --nolink
+   "
+   if [ -n "$(conf_get_master ${svcitf})" ]; then
+      # In the script, we assign the leased address to the bridge instead of
+      # ${svcitf}; this goes wrong when dhcpcd validates the address with ARP,
+      # because it finds the IP associated to the bridge’s MAC address instead
+      # of ${svcitf}’s, and warns about DAD, then abandons the lease and
+      # obtains a new address.
+      # A hacky fix for this is to just disable all ARP messaging, which
+      # results in DAD not happening.
+      command_args="${command_args} --noarp"
+   fi
+   command_args="${command_args}
       --option domain_name,domain_name_servers,domain_search
       --option classless_static_routes,interface_mtu,rapid_commit
       ${svcitf}
