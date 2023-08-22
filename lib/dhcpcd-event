@@ -181,11 +181,13 @@ manual_deconfigure() {
       done
    fi
 
-   logger -t "${prodname}/dhcpcd[${target_interface}]" "removing address ${new_ip_address}/${new_subnet_cidr}"
-   ip address delete ${old_ip_address}/${old_subnet_cidr} dev ${target_interface}
-   if [ -n "${master}" ]; then
-      local escaped_ipaddr=$(echo ${old_ip_address} | sed -e 's/\./\\./g')
-      sed -i -e "/^${interface} ${escaped_ipaddr}\/${old_subnet_cidr}/d" ${bridges_moved_ipaddrs_file}
+   if [ -n "${old_ip_address:-}" ] && [ -n "${old_subnet_cidr:-}" ]; then
+      logger -t "${prodname}/dhcpcd[${target_interface}]" "removing address ${new_ip_address}/${new_subnet_cidr}"
+      ip address delete ${old_ip_address}/${old_subnet_cidr} dev ${target_interface}
+      if [ -n "${master}" ]; then
+         local escaped_ipaddr=$(echo ${old_ip_address} | sed -e 's/\./\\./g')
+         sed -i -e "/^${interface} ${escaped_ipaddr}\/${old_subnet_cidr}/d" ${bridges_moved_ipaddrs_file}
+      fi
    fi
 }
 
