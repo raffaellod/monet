@@ -140,13 +140,15 @@ manual_configure() {
    local target_interface=${master:-${interface}}
 
    logger -t "${prodname}/dhcpcd[${target_interface}]" "adding address ${new_ip_address}/${new_subnet_cidr}"
-   if ! ip address add ${new_ip_address}/${new_subnet_cidr} \
+   if ip address add ${new_ip_address}/${new_subnet_cidr} \
          ${new_broadcast_address:+broadcast ${new_broadcast_address}} \
          scope global dev ${target_interface}; then
+      if [ -n "${master}" ]; then
+         # Track which slave interface this address belongs to.
+         echo "${interface} ${new_ip_address}/${new_subnet_cidr}" >>${bridges_moved_ipaddrs_file}
+      fi
+   else
       logger -t "${prodname}/dhcpcd[${target_interface}]" "failed to add address ${new_ip_address}"
-   fi
-   if [ -n "${master}" ]; then
-      echo "${interface} ${new_ip_address}/${new_subnet_cidr}" >>${bridges_moved_ipaddrs_file}
    fi
 
    if [ -n "${itfmtu:-}" ]; then
