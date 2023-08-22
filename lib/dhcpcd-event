@@ -160,7 +160,12 @@ manual_configure() {
       logger -t "${prodname}/dhcpcd[${target_interface}]" "adding routes ${new_routers}"
       local m=${ifmetric-1} gw
       for gw in ${new_routers}; do
-         if ! ip route add default via ${gw} metric ${m} dev ${target_interface} proto boot; then
+         if ip route add default via ${gw} metric ${m} dev ${target_interface} proto boot; then
+            if [ -n "${master}" ]; then
+               # Track which slave interface this route belongs to.
+               echo "${interface} default via ${gw}" >>${bridges_moved_routes_file}
+            fi
+         else
             logger -t "${prodname}/dhcpcd[${target_interface}]" "failed to add route ${gw}"
          fi
          m=$((m + 1))
@@ -178,6 +183,10 @@ manual_deconfigure() {
       local gw
       for gw in ${old_routers}; do
          ip route delete default via ${gw} dev ${target_interface}
+         if [ -n "${master}" ]; then
+            local escaped_gw=$(echo ${gw} | sed -e 's/\./\\./g')
+            sed -i -e "/^${interface} default via ${gw}/d" ${bridges_moved_routes_file}
+         fi
       done
    fi
 

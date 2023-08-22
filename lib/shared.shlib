@@ -13,6 +13,7 @@ fi
 
 hostapd_conf_dir=/etc/hostapd
 bridges_moved_ipaddrs_file=/run/${prodname}/bridges-moved-ipaddrs
+bridges_moved_routes_file=/run/${prodname}/bridges-moved-routes
 itf_resolv_conf_prefix=/run/${prodname}/resolv.conf-dhcpc.
 
 # Utility functions
@@ -36,21 +37,41 @@ add_conf_ipaddrs() {
 add_to_bridge() {
    ebegin "Adding $(pretty_name ${1}) to $(pretty_name ${2})"
 
+   # Collect addresses and routes before we start messing with them.
+   local ipaddr ipaddrs="$(
+      ip address show dev ${1} scope global |
+      sed -ne '
+         s/ '${1}'$//
+         s/^ \+inet6\? //p
+      '
+   )"
+   local route routes="$(ip route show dev ${1})"
+
    ip link set ${1} master ${2} || { eend ${?}; return; }
 
-   # Transfer any IP addresses from slave to bridge, also tracking them for
-   # later.
-   local ipaddr
-   ip address show ${1} scope global |
-   sed -ne '
-      s/ '${1}'$//
-      s/^ \+inet6\? //p
-   ' |
-   while read -r ipaddr; do
-      ip address del ${ipaddr} dev ${1} &&
-      ip address add ${ipaddr} dev ${2}
-      echo "${1} ${ipaddr}"
-   done >>${bridges_moved_ipaddrs_file}
+   if [ -n "${ipaddrs}" ]; then
+      # Transfer any IP addresses from slave to bridge, also tracking them for
+      # later.
+      echo "${ipaddrs}" |
+      while read -r ipaddr; do
+         logger -t "${prodname}[${2}]" "moving IP address ${ipaddr}"
+         ip address del ${ipaddr} dev ${1}
+         ip address add ${ipaddr} dev ${2}
+         echo "${1} ${ipaddr}"
+      done >>${bridges_moved_ipaddrs_file}
+   fi
+
+   if [ -n "${routes}" ]; then
+      # Transfer any routes going through the slave and reassign them to go
+      # through the bridge, also tracking them for later.
+      echo "${routes}" |
+      while read -r route; do
+         logger -t "${prodname}[${2}]" "moving route ${route}"
+         ip route del ${route} dev ${1}
+         ip route add ${route} dev ${2}
+         echo "${1} ${route}"
+      done >>${bridges_moved_routes_file}
+   fi
 
    eend ${?}
 }
@@ -232,11 +253,27 @@ remove_from_bridge() {
       local ipaddr
       sed -ne "s/^${1} //p" <${bridges_moved_ipaddrs_file} |
       while read -r ipaddr; do
+         logger -t "${prodname}[${2}]" "restoring IP address ${ipaddr}"
          ip address del ${ipaddr} dev ${2} &&
          ip address add ${ipaddr} dev ${1}
       done
       # Clean up the tracking file.
       sed -i -e "/^${1} /d" ${bridges_moved_ipaddrs_file}
+      eend ${?}
+   fi
+
+   # Restore any transferred routes.
+   if [ -r ${bridges_moved_routes_file} ]; then
+      ebegin "Tranferring routes from ${2} back to ${1}"
+      local route
+      sed -ne "s/^${1} //p" <${bridges_moved_routes_file} |
+      while read -r route; do
+         logger -t "${prodname}[${2}]" "restoring route ${route}"
+         ip route del ${route} dev ${2} &&
+         ip route add ${route} dev ${1}
+      done
+      # Clean up the tracking file.
+      sed -i -e "/^${1} /d" ${bridges_moved_routes_file}
       eend ${?}
    fi
 
