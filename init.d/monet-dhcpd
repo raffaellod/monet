@@ -1,7 +1,7 @@
 #!/sbin/openrc-run
 # -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
 #
-# Copyright 2018-2020 Raffaello D. Di Napoli
+# Copyright 2018-2020, 2024 Raffaello D. Di Napoli
 # Distributed under the terms of the GNU General Public License v2
 
 prodname=${RC_SVCNAME%%-*}
@@ -10,7 +10,8 @@ svcitf="${RC_SVCNAME#*.}"
 . /etc/${prodname}/${prodname}.conf
 
 depend() {
-   need logger ${svcitf:+${prodname}.${svcitf}}
+   need ${svcitf:+${prodname}.${svcitf}}
+   use logger
 }
 
 if [ -n "${svcitf}" ]; then

@@ -1,5 +1,5 @@
 #!/sbin/openrc-run
-# Copyright 2022 Raffaello D. Di Napoli
+# Copyright 2022, 2024 Raffaello D. Di Napoli
 # Distributed under the terms of the GNU General Public License, v2 or later
 
 extra_started_commands='reload rotate'
@@ -10,9 +10,10 @@ svcitf="${RC_SVCNAME#*.}"
 . /etc/${prodname}/${prodname}.conf
 
 depend() {
-   provide dns
-   need hostname logger ${svcitf:+${prodname}.${svcitf}}
+   need hostname ${svcitf:+${prodname}.${svcitf}}
+   use logger
    after bootmisc
+   provide dns
 }
 
 if [ -n "${svcitf}" ]; then

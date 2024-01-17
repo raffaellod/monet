@@ -1,7 +1,7 @@
 #!/sbin/openrc-run
 # -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
 #
-# Copyright 2018-2022 Raffaello D. Di Napoli
+# Copyright 2018-2022, 2024 Raffaello D. Di Napoli
 # Distributed under the terms of the GNU General Public License v2
 
 prodname=${RC_SVCNAME%%.*}
@@ -12,14 +12,15 @@ svcitf="${RC_SVCNAME#*.}"
 
 depend() {
    need localmount
+   use logger
    after bootmisc clock modules
    provide net
    if [ -n "${svcitf}" ]; then
-      provide net.${svcitf}
       local depitf
       for depitf in $(itf_dependencies ${svcitf}); do
          need ${prodname}.${depitf}
       done
+      provide net.${svcitf}
    fi
 }
 

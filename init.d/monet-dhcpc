@@ -1,7 +1,7 @@
 #!/sbin/openrc-run
 # -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
 #
-# Copyright 2018-2023 Raffaello D. Di Napoli
+# Copyright 2018-2024 Raffaello D. Di Napoli
 # Distributed under the terms of the GNU General Public License v2
 
 prodname=${RC_SVCNAME%%-*}
@@ -21,7 +21,7 @@ elif busybox 2>&1 | grep -q '\sudhcpc,'; then
 fi
 
 depend() {
-   need logger
+   use logger
    # after because we can start without a hostname; none will be provided to
    # the DHCP server.
    after hostname
