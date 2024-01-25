@@ -31,7 +31,9 @@ depend() {
    want ${svcitf:+${prodname}.${svcitf}}
 }
 
-if [ "${dhcpc_daemon##*/}" = dhcpcd ]; then
+if [ -z "${svcitf}" ]; then
+   name='DHCP client (make a symlink with suffix .interface)'
+elif [ "${dhcpc_daemon##*/}" = dhcpcd ]; then
    name="DHCP client for ${svcitf} using dhcpcd"
    command="${dhcpc_daemon}"
    pidfile=/run/dhcpcd/${svcitf}.pid
@@ -70,10 +72,8 @@ elif [ "${dhcpc_daemon}" = udhcpc ]; then
       command_args="${command_args} -x hostname:${hn}"
    fi
    unset hn
-elif [ -n "${svcitf}" ]; then
-   name="DHCP client for ${svcitf}"
 else
-   name='DHCP client (make a symlink with suffix .interface)'
+   name="DHCP client for ${svcitf}"
 fi
 description="${name}"
 
