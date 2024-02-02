@@ -1,7 +1,7 @@
 #!/bin/sh -u
 # -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
 #
-# Copyright 2018-2023 Raffaello D. Di Napoli
+# Copyright 2018-2024 Raffaello D. Di Napoli
 # Distributed under the terms of the GNU General Public License v2
 
 prodname=$(basename $(dirname ${0}))
@@ -185,7 +185,7 @@ manual_deconfigure() {
          ip route delete default via ${gw} dev ${target_interface}
          if [ -n "${master}" ]; then
             local escaped_gw=$(echo ${gw} | sed -e 's/\./\\./g')
-            sed -i -e "/^${interface} default via ${gw}/d" ${bridges_moved_routes_file}
+            sed_i_e "/^${interface} default via ${gw}/d" ${bridges_moved_routes_file}
          fi
       done
    fi
@@ -195,7 +195,7 @@ manual_deconfigure() {
       ip address delete ${old_ip_address}/${old_subnet_cidr} dev ${target_interface}
       if [ -n "${master}" ]; then
          local escaped_ipaddr=$(echo ${old_ip_address} | sed -e 's/\./\\./g')
-         sed -i -e "/^${interface} ${escaped_ipaddr}\/${old_subnet_cidr}/d" ${bridges_moved_ipaddrs_file}
+         sed_i_e "/^${interface} ${escaped_ipaddr}\/${old_subnet_cidr}/d" ${bridges_moved_ipaddrs_file}
       fi
    fi
 }

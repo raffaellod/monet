@@ -1,7 +1,7 @@
 #!/bin/sh -u
 # -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
 #
-# Copyright 2022 Raffaello D. Di Napoli
+# Copyright 2022, 2024 Raffaello D. Di Napoli
 # Distributed under the terms of the GNU General Public License v2
 
 prodname=$(basename $(dirname ${0}))
@@ -28,7 +28,7 @@ EOF
 # ${2}: hostname
 delete_from_exported_hosts() {
    local exported_hosts=/run/${prodname}/dnsmasq.${1}.exported_hosts
-   sed -i -e "/ $(escape_hostname_for_sed "${2}")\$/ d" ${exported_hosts}
+   sed_i_e "/ $(escape_hostname_for_sed "${2}")\$/ d" ${exported_hosts}
 }
 
 escape_hostname_for_sed() {

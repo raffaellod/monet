@@ -1,6 +1,6 @@
 # -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
 #
-# Copyright 2018-2022 Raffaello D. Di Napoli
+# Copyright 2018-2022, 2024 Raffaello D. Di Napoli
 # Distributed under the terms of the GNU General Public License v2
 
 # Unify openrc and non-openrc execution environments
@@ -258,7 +258,7 @@ remove_from_bridge() {
          ip address add ${ipaddr} dev ${1}
       done
       # Clean up the tracking file.
-      sed -i -e "/^${1} /d" ${bridges_moved_ipaddrs_file}
+      sed_i_e "/^${1} /d" ${bridges_moved_ipaddrs_file}
       eend ${?}
    fi
 
@@ -273,7 +273,7 @@ remove_from_bridge() {
          ip route add ${route} dev ${1}
       done
       # Clean up the tracking file.
-      sed -i -e "/^${1} /d" ${bridges_moved_routes_file}
+      sed_i_e "/^${1} /d" ${bridges_moved_routes_file}
       eend ${?}
    fi
 
@@ -288,6 +288,25 @@ remove_from_bridge_maybe() {
       remove_from_bridge ${1} ${master}
    fi
 }
+
+# ${1}: expression
+# ${2}: file path
+sed_i_e() {
+   if [ -z "${sed_i_works}" ]; then
+      if sed --help 2>&1 | grep -q '^BusyBox\|^GNU sed'; then
+         sed_i_works=true
+      else
+         sed_i_works=false
+      fi
+   fi
+   if ${sed_i_works}; then
+      sed -i -e "${1}" "${2}"
+   else
+      sed -e "${1}" "${2}" >"${2}.sedded"
+      mv -f "${2}.sedded" "${2}"
+   fi
+}
+sed_i_works=
 
 # ${1}: interface
 # ${dns}: optional list of DNS servers
