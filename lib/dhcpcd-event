@@ -1,12 +1,15 @@
 #!/bin/sh -u
 # -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
 #
-# Copyright 2018-2024 Raffaello D. Di Napoli
+# Copyright 2018-2025 Raffaello D. Di Napoli
 # Distributed under the terms of the GNU General Public License v2
 
 prodname=$(basename $(dirname ${0}))
+#exec 2>/run/${prodname}/${interface}-${reason}.dhcpcd.log
+#set -x
 unset IN_HOTPLUG RC_SVCNAME
 . /lib/${prodname}/shared.shlib
+#set +x
 
 # Event handler implementation
 #
@@ -191,7 +194,7 @@ manual_deconfigure() {
    fi
 
    if [ -n "${old_ip_address:-}" ] && [ -n "${old_subnet_cidr:-}" ]; then
-      logger -t "${prodname}/dhcpcd[${target_interface}]" "removing address ${new_ip_address}/${new_subnet_cidr}"
+      logger -t "${prodname}/dhcpcd[${target_interface}]" "removing address ${old_ip_address}/${old_subnet_cidr}"
       ip address delete ${old_ip_address}/${old_subnet_cidr} dev ${target_interface}
       if [ -n "${master}" ]; then
          local escaped_ipaddr=$(echo ${old_ip_address} | sed -e 's/\./\\./g')
@@ -200,10 +203,9 @@ manual_deconfigure() {
    fi
 }
 
-#logger -t "${prodname}/dhcpcd[${interface}]" "${reason} \\"
-#exec 2>/run/${prodname}/${interface}.dhcpcd.log
 #set -x
-#set | sed -ne 's/^if\|^\(new\|old\)_\|^\(reason\|interface\)=/export &/p' >/run/${prodname}/${interface}.dhcpcd.vars
+#logger -t "${prodname}/dhcpcd[${interface}]" "${reason} \\"
+#set | sed -ne 's/^if\|^\(new\|old\)_\|^\(reason\|interface\)=/export &/p' >/run/${prodname}/${interface}-${reason}.dhcpcd.vars
 case ${reason} in
 (BOUND|REBOOT)
    ${if_configured} || manual_configure
