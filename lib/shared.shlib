@@ -1,12 +1,21 @@
 # -*- coding: utf-8; mode: sh; tab-width: 3; indent-tabs-mode: nil -*-
 #
-# Copyright 2018-2022, 2024 Raffaello D. Di Napoli
+# Copyright 2018-2022, 2024-2025 Raffaello D. Di Napoli
 # Distributed under the terms of the GNU General Public License v2
 
 # Unify openrc and non-openrc execution environments
-export RC_LIBEXECDIR=/lib/rc
 if [ -z "${RC_SVCNAME:-}" ]; then
-   export PATH="${RC_LIBEXECDIR}/bin:${RC_LIBEXECDIR}/sbin:${PATH}"
+   # Looks like the path to OpenRC’s accessory binaries has changed over time.
+   for d in /lib/rc /usr/libexec/rc; do
+      if [ -x ${d}/bin/service_started ]; then
+         export RC_LIBEXECDIR=${d}
+         break
+      fi
+   done
+   unset d
+   if [ -n "${RC_LIBEXECDIR:-}" ]; then
+      export PATH="${RC_LIBEXECDIR}/bin:${RC_LIBEXECDIR}/sbin:${PATH}"
+   fi
 fi
 
 # Configuration
