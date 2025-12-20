@@ -50,6 +50,7 @@ add_to_bridge() {
    local ipaddr ipaddrs="$(
       ip address show dev ${1} scope global |
       sed -ne '
+         s/ scope global secondary / scope global /
          s/ '${1}'$//
          s/^ \+inet6\? //p
       '
