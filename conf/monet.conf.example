@@ -45,6 +45,9 @@ enp1s1_ipaddrs='10.20.30.40/24'
 # Optionally configure DHCP address range:
 enp1s1_dhcpd_start=0.0.0.128
 enp1s1_dhcpd_end=0.0.0.224
+# If there’s no traffic forwarding from LAN to WAN, add this to signal to
+# clients that LAN does not route out:
+#enp1s1_dhcpd_norouter=1
 
 # One more symlink & service:
 # $ sudo ln -s monet-dhcpd /etc/init.d/monet-dhcpd.enp1s1
