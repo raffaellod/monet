@@ -1,0 +1,24 @@
+# Copyright 2026 Raffaello D. Di Napoli
+# Distributed under the terms of the GNU General Public License v2
+
+# This file shows how to provide additional configuration for BusyBox’s udhcpd
+# for a network interface named en0 .
+# Some settings are borrowed from BusyBox’s examples/udhcpd/udhcpd.conf .
+
+# monet generates these for you, based on monet.conf :
+#interface
+#pidfile
+#lease_file
+#start
+#end
+#max_leases
+#opt subnet
+#opt router
+
+# If client asks for lease below this value, it will be rounded up
+# to this value (seconds)
+#min_lease	60
+
+# Static leases map
+#static_lease 00:60:08:11:CE:4E 192.168.0.54
+#static_lease 00:60:08:11:CE:3E 192.168.0.44 optional_hostname

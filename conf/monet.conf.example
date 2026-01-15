@@ -1,5 +1,7 @@
-# Copyright 2022 Raffaello D. Di Napoli
+# Copyright 2022, 2026 Raffaello D. Di Napoli
 # Distributed under the terms of the GNU General Public License v2
+
+# This file contains examples for /etc/monet/monet.conf .
 
 #
 # Simple configuration: just one GbE adapter, configured via DHCP
@@ -52,7 +54,8 @@ enp1s1_dhcpd_end=0.0.0.224
 # $ sudo rc-config add monet-dnsmasq.enp1s1 default
 
 #
-# Bridged dual adapters
+# Bridged dual adapters: one for WAN, one for LAN, with a bridge joining them.
+# No DHCP provided in this scenario; will need DHCP server on WAN side.
 #
 
 # Declare bridges to create & manage
